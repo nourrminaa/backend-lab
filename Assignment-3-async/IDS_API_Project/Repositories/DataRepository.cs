@@ -14,10 +14,11 @@ public class DataRepository
         _connectionString = config.GetConnectionString("Default")!;
     }
 
-    public List<DataItem> GetAll()
+    public async Task<List<DataItem>> GetAll()
     {
         using var connection = new SqlConnection(_connectionString);
-        // .Query<DataItem> is a Dapper method that executes the SQL query and maps the results to a list of DataItem objects
-        return connection.Query<DataItem>("SELECT Id, Name, Description FROM Data").ToList();
+        // QueryAsync is Dapper's async version of Query
+        var result = await connection.QueryAsync<DataItem>("SELECT Id, Name, Description FROM Data");
+        return result.ToList();
     }
 }

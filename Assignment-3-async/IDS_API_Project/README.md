@@ -1,204 +1,103 @@
 _This projet was made by Nour Mina as part of the IDS Fintech Backend Training Program_
 
-# IDS Fintech Assignment 2 - API Project
+# IDS Fintech Assignment 3 - Async Project
 
 _in this file, i will be sharing all notes i have taken while working on the project but did not include in the code files. This is to help me remember what i have done and why i have done it_
 
-## 1. Request to Response Flow
+## 1. What Changed From Assignment 2
+
+Assignment 2 had a working API but it was not using **async**. For this assignment, the goal was to make the whole request path async and add a new endpoint that uses a **Task** with a continuation.
+
+## 2. What Async Actually Means Here
+
+The base of it is the Task-based Asynchronous Pattern (TAP). Basically `Task` and `Task<T>` are objects that represent work that is still going on, not work that already finished.
+
+`async` and `await` are keywords that were added so we can write async code that still reads like normal sequential code. Without them we would have to write callbacks everywhere which is way harder to do.
+
+When a method is marked `async`, the compiler does not just run it normally. It rewrites it behind the scenes into something called a **state machine**. That state machine is what lets the method pause at an `await` and continue later without blocking the thread.
+
+### 2.1 What the compiler is doing (from what i understood)
+
+There are 4 things happening when an async method runs:
+
+1. **Compiler Transformation**: the compiler takes the async method and turns it into a state machine, so it knows how to pause and resume it.
+2. **State Machine Generation**: every `await` in the method becomes a new "state". The state machine remembers which state it stopped on.
+3. **Variable Spilling**: any local variable that is still needed after an `await` gets saved inside the state machine, so the data is not lost when the method pauses.
+4. **Continuation Scheduling**: if the awaited task is not done yet, the method returns control back to whoever called it, and schedules the rest of the method to run later once the task finishes. That "rest of the method" is the continuation.
+
+## 3. Rules i Followed
+
+### 3.1 Async all the way
+
+If one method is async, everything calling it should also be async, all the way up. Also, never call `.Result` or `.Wait()` on a task, because these block the thread and can cause deadlocks.
+
+_So in this project, as explained: Controller awaits Service, Service awaits Repository, Repository awaits Dapper's `QueryAsync`. No blocking anywhere in the chain._
+
+### 3.2 Never return void from async methods
+
+`async void` should only be used for event handlers. Every other async method should return `Task` or `Task<T>`, otherwise exceptions thrown inside it cannot be caught properly and the caller has no way to await it.
+
+## 4. Request to Response Flow
 
 Postman GET request → Controller → Service → CachedDataRepository → DataRepository → SQL Server
 
-Each layer knows about the layer below it through interfaces and not through concrete classes.
+Same flow as Assignment 2, just every step in this chain now uses `await` instead of blocking calls.
 
-## 2. Project Setup
+## 5. The Two Endpoints
 
-### 2.1 Create the project
+### 5.1 GET /api/data
 
-An automatic builder generates a new ASP.NET Core Web API project from a template.
+This is the same endpoint as before but now async top to bottom.
 
-```
-dotnet new webapi -n IDS_API_Project -controllers
-```
+### 5.2 GET /api/data/random
 
-→ `new webapi` tells dotnet which template to use. It sets up a project pre-wired for HTTP endpoints, Swagger and a controllers folder.
-→ `-n IDS_API_Project` names the project and the folder it creates.
-→ `-controllers` includes controller based routing (the `[ApiController]` style) instead of the newer minimal API style.
+This one is new. It uses `Task.Run` to start a random calculation on a background thread (since its CPU work, not I/O work). Then it uses `.ContinueWith()` to create a continuation that picks up the result once the task is done. Then that continuation gets awaited so the controller can return the final result.
 
-### 2.2 Gitignore
+## 6. Proving Async Actually Works (Thread Print Test)
 
-Instead of typing the gitignore by hand, generate a pre-made list with this command.
+To actually see the async working and not just trust that it is, i added a small loop at the top of both endpoints that prints the current thread id 5 times with a delay between each print.
 
-```
-dotnet new gitignore
-```
+### 7.1 How i tested it
 
-## 3. File Types
+Ran the app with `dotnet run` in one terminal, then in a second terminal fired both endpoints at the same time using to background them so they hit the server together:
 
-### 3.1 C# files
+curl http://localhost:5015/api/data & curl http://localhost:5015/api/data/random &
 
-`.cs` is the C# file extension.
+Then watched the **first terminal** (the one running `dotnet run`), since thats where `Console.WriteLine` actually prints, not the terminal that sent the curl.
 
-### 3.2 Project files
+### 7.2 What i got
 
-`.csproj` is the C# Project file. It manages dependencies and build settings.
+Thread 8 (GET /api/data): 1
+Thread 7 (GET /api/data/random): 1
+Thread 8 (GET /api/data/random): 2
+Thread 7 (GET /api/data): 2
+Thread 7 (GET /api/data): 3
+Thread 8 (GET /api/data/random): 3
+Thread 7 (GET /api/data/random): 4
+Thread 11 (GET /api/data): 4
+Thread 7 (GET /api/data): 5
+Thread 7 (GET /api/data/random): 5
 
-### 3.3 Web Forms
+### 7.3 What this actually shows
 
-`.aspx` is an ASP.NET Web Forms file containing server side C# code.
+Two things:
 
-### 3.4 Program.cs
+1. **The two requests are interleaved.**
+   Lines from `/api/data` and `/api/data/random` are mixed together instead of one finishing completely before the other starts. If this was blocking/sync code, one endpoint would print all 5 of its lines first, then the other would start.
 
-When the project starts, the computer reads this file first.
-It sets up the web server, turns on security features and launches the site.
+2. **The thread id changes mid-request.** Look at `/api/data`, it printed on Thread 8, then Thread 7, then Thread 11, then back to Thread 7. This connects to the "Continuation Scheduling" part i wrote about earlier, every time the code hits `await Task.Delay(500)`, the method pauses and gives its thread back to the thread pool. Once the delay is done, whatever thread is free at that moment picks the method back up, not necessarily the same one it started on. So the request is not "holding" a thread the whole time, its more like it borrows one, pauses, and grabs whichever one is free when its ready to continue.
 
-## 4. Packages
-
-After the project setup, add these packages.
-
-```
-dotnet add package Dapper
-dotnet add package Microsoft.Data.SqlClient
-dotnet add package DotNetEnv
-```
-
-### 4.1 Dapper
-
-Dapper is a popular Micro ORM built by Stack Overflow.
-It automatically converts SQL query results into C# objects so we do not have to map them manually.
-
-### 4.2 Microsoft.Data.SqlClient
-
-This is the official SQL Server driver. It gives the `SqlConnection` used to connect.
-
-### 4.3 DotNetEnv
-
-This package lets the project load environment variables from a `.env` file.
-
-## 5. Connection String Setup
-
-### 5.1 appsettings.json (before env)
-
-```
-"ConnectionStrings": {
-  "Default": "Server=localhost,1433;Database=DummyDataDb;User Id=SA;Password=Secret;TrustServerCertificate=True;"
-}
-```
-
-### 5.2 The env flow
-
-```
-.env
-  ↓
-Env.Load()
-  ↓
-Environment.GetEnvironmentVariable()
-  ↓
-create the connection string
-  ↓
-put it inside builder.Configuration
-  ↓
-use GetConnectionString() normally
-```
-
-### 5.3 The .env file
-
-```
-DB_SERVER=localhost,1433
-DB_NAME=DummyDataDb
-DB_USER=SA
-DB_PASSWORD=YourStrong!Passw0rd
-```
-
-### 5.4 Program.cs code
-
-```
-using DotNetEnv;
-
-Env.Load();
-
-var builder = WebApplication.CreateBuilder(args);
-
-var server = Environment.GetEnvironmentVariable("DB_SERVER");
-var database = Environment.GetEnvironmentVariable("DB_NAME");
-var user = Environment.GetEnvironmentVariable("DB_USER");
-var password = Environment.GetEnvironmentVariable("DB_PASSWORD");
-
-var connectionString = $"Server={server};" + $"Database={database};" + $"User Id={user};" + $"Password={password};" + $"TrustServerCertificate=True;";
-builder.Configuration["ConnectionStrings:Default"] = connectionString;
-
-builder.Services.AddControllers();
-builder.Services.AddOpenApi();
-
-var app = builder.Build();
-```
-
-### 5.5 appsettings.json (after env)
-
-```
-{
-  "ConnectionStrings": {
-    "Default": ""
-  },
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "AllowedHosts": "*"
-}
-```
-
-You can also remove `Default` completely if you want.
-
-## 6. Full Request Lifecycle
-
-```
-User
-  ↓
-GET /api/data
-  ↓
-DataController
-  ↓
-_service.GetAll()
-  ↓
-DataService
-  ↓
-_repo.GetAll()
-  ↓
-CachedDataRepository
-  ↓
-Is it cached?
-  ↓
-YES → Return data
-  ↓
-NO
-  ↓
-DataRepository
-  ↓
-SQL Query
-  ↓
-Database
-  ↓
-Returns data
-  ↓
-Repository
-  ↓
-Service
-  ↓
-Controller
-  ↓
-return Ok(data)
-  ↓
-User receives JSON
-```
+This is basically the state machine from section 2 in action, i can actually see it jumping between states/threads instead of just reading about it.
 
 ## 7. Postman Testing
 
-Postman is a tool for testing APIs. It can send requests and display responses.
-![Postman GET request](readme-screenshots/postman-get.png)
+_this pic shows the first data GET_
+![Postman GET data 1](readme-screenshots/postman-get-data-1.png)
 
-And since our API is a simple GET endpoint, we can also test it in the browser after typing the api URL in the address bar and hitting enter.
-![Browser GET request](readme-screenshots/browser-get.png)
+_and this shows the second within 10 mins (cached is faster)_
+![Postman GET data 2](readme-screenshots/postman-get-data-2.png)
 
-**annnd that's it. thank you for reading my notes :)**
+_lastly, this is the GET of the random_
+![Postman GET random](readme-screenshots/postman-get-random.png)
+
+**annnd that's it. if you're still here thank you :)**

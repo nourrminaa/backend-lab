@@ -6,5 +6,5 @@ namespace IDS_API_Project.Repositories;
 
 public interface IDataRepository
 {
-    List<DataItem> GetAll();
+    Task<List<DataItem>> GetAll();
 }

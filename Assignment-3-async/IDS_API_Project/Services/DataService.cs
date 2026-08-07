@@ -18,7 +18,8 @@ public class DataService : IDataService
         _repo = repo;
     }
 
-    public List<DataItem> GetAll(){ 
-        return _repo.GetAll(); 
+    public async Task<List<DataItem>> GetAll()
+    {
+        return await _repo.GetAll();
     }
 }

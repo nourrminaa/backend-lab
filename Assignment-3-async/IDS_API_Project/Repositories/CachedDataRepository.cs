@@ -16,7 +16,7 @@ public class CachedDataRepository : IDataRepository
         _cache = cache;
     }
 
-    public List<DataItem> GetAll()
+    public async Task<List<DataItem>> GetAll()
     {
         // Used '?' to remove the warning that cachedData may be uninitialized
         List<DataItem>? cachedData; 
@@ -29,7 +29,7 @@ public class CachedDataRepository : IDataRepository
         }
 
         // If data doesn't exist in cache, ask the real repository for the data.
-        List<DataItem> data = _inner.GetAll();
+        List<DataItem> data = await _inner.GetAll();
         // Store it in cache
         _cache.Set(
             "all-data",
