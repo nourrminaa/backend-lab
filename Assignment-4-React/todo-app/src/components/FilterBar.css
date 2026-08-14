@@ -1,0 +1,28 @@
+.filter-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  width: fit-content;
+}
+
+.filter-button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.filter-button:hover {
+  color: var(--color-text);
+}
+
+.filter-button-active {
+  background: var(--color-surface);
+  color: var(--color-accent);
+  box-shadow: var(--shadow);
+}
